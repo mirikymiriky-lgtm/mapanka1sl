@@ -1,0 +1,1334 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Радар П'ятихаток</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-geosearch@3.10.2/dist/geosearch.css" />
+
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        * { box-sizing: border-box; }
+        html,body,#map { height:100%; margin:0; padding:0; }
+        body {
+            background: #ffffff;
+            font-family: "Montserrat", Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        .leaflet-container { background: #ffffff !important; }
+
+        .toolbar {
+            position: absolute; top: 16px; left: 16px; z-index: 1000;
+            background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px);
+            padding: 20px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            font-size: 13px; color: #e2e8f0; max-width: 400px;
+        }
+        .toolbar.minimized { padding:12px 16px; }
+        .toolbar-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.1); }
+        .toolbar-title { font-size:16px; font-weight:700; color:#60a5fa; }
+        .toolbar-section { margin-bottom:12px; padding:12px; background: rgba(255,255,255,0.05); border-radius:8px; }
+        .toolbar-section-title { font-size:11px; color:#94a3b8; margin-bottom:8px; font-weight:600; text-transform:uppercase; }
+        .button-group { display:flex; gap:6px; flex-wrap:wrap; }
+
+        button {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color:white; border:none; padding:8px 14px; border-radius:8px;
+            font-family:"Montserrat", Arial, sans-serif; font-size:12px; font-weight:600; cursor:pointer;
+            transition: all 0.2s ease; box-shadow:0 2px 8px rgba(59,130,246,0.3);
+        }
+        button.secondary { background: linear-gradient(135deg,#64748b 0%,#475569 100%); }
+        button.success { background: linear-gradient(135deg,#10b981 0%,#059669 100%); }
+        button.danger { background: linear-gradient(135deg,#ef4444 0%,#dc2626 100%); }
+        button.active-spawn { background: linear-gradient(135deg,#f97316 0%,#ea580c 100%); }
+
+        input[type="number"], input[type="range"] { background: rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:#e2e8f0; padding:6px 10px; border-radius:6px; width:70px; }
+        label { display:flex; align-items:center; gap:8px; color:#cbd5e1; font-size:12px; }
+
+        .shakhed-icon{ width:25px; height:25px; }
+        .razved-icon { width:24px; height:24px; }
+        .raketa-icon { width:25px; height:25px; }
+        .neizv-icon { width:32px; height:32px; }
+        .istreb-icon { width:30px; height:30px; }
+        
+        /* Изменение для PNG взрыва */
+        .explosion-icon { 
+            width:50px; /* ИЗМЕНЕНО: 70px -> 50px */
+            height:50px; /* ИЗМЕНЕНО: 70px -> 50px */
+            background-image: url('explosion.png'); /* Использование PNG */
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            animation: pulse 0.5s infinite alternate; 
+        }
+
+        @keyframes pulse {
+            from { transform: scale(0.9); opacity: 1; }
+            to { transform: scale(1.1); opacity: 0.8; }
+        }
+
+        .marker-wrap{ 
+            position:relative; 
+            width:50px; /* Базовый размер */
+            height:35px; 
+            transform-origin:50% 50%; 
+            transition: transform 0.1s ease; 
+        }
+        .marker-wrap[data-type="explosion"] { 
+             width:50px; /* ИЗМЕНЕНО: 70px -> 50px */
+             height:50px; /* ИЗМЕНЕНО: 70px -> 50px */
+        }
+
+        .marker-border{ position:absolute; left:0; top:0; right:0; bottom:0; border-radius:8px; pointer-events:auto; transition: all 0.2s ease; }
+        .marker-selected .marker-border{ box-shadow:0 0 0 3px rgba(59,130,246,0.8), 0 0 20px rgba(59,130,246,0.5); background: rgba(59,130,246,0.1); }
+        .rotate-handle{ position:absolute; width:14px; height:14px; border-radius:50%; right:-7px; top:50%; transform:translateY(-50%); background: rgba(59,130,246,0.8); border:2px solid white; cursor:grab; opacity:0; transition:opacity 0.2s ease; }
+        .marker-selected .rotate-handle { opacity:1; }
+
+        .marquee{ position:absolute; border:2px dashed #3b82f6; background: rgba(59,130,246,0.1); backdrop-filter: blur(4px); z-index:2000; pointer-events:none; border-radius:4px; }
+        .watermark-grid {
+            position: absolute;
+            top:0; left:0;
+            width:100%; height:100%;
+            pointer-events:none;
+            z-index:500;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            grid-auto-rows: 140px;
+            justify-items: center;
+            align-items: center;
+            gap: 20px;
+            padding: 40px;
+        }
+
+        .watermark-item {
+            text-align: center;
+            pointer-events:none;
+            font-family: "Montserrat", Arial, sans-serif;
+            line-height: 1.2;
+            user-select: none;
+            -webkit-user-select: none;
+            opacity: 0.15;
+            transition: opacity 0.3s ease;
+        }
+
+        .watermark-item .line1 {
+            color: rgba(0, 0, 0, 0.9);
+            font-size: 22px;
+            font-weight: 700;
+            display: block;
+            letter-spacing: 1px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0);
+        }
+
+        .watermark-item .line2 {
+            color: rgba(0, 0, 0, 0.9);
+            font-size: 15px;
+            font-weight: 400;
+            display: block;
+            margin-top: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        /* Стиль для Popup времени подлёта */
+        .arrival-popup {
+            font-family:"Montserrat", Arial, sans-serif; font-size:13px; color:#1e293b;
+            min-width: 150px; text-align: center;
+        }
+        .arrival-popup b { display:block; margin-bottom:8px; color:#0f172a; font-size:14px; }
+        .arrival-popup .metric { background: linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%); padding:8px 12px; border-radius:6px; margin:6px 0; border-left:3px solid #3b82f6; }
+        .arrival-popup .metric-label { font-size:11px; color:#64748b; text-transform:uppercase; margin-bottom:4px; }
+        .arrival-popup .metric-value { font-size:15px; font-weight:700; color:#1e40af; }
+        
+        /* Стиль для маркеров рисования */
+        .draw-point-marker {
+            opacity: 0.8;
+        }
+
+        .stats-panel { position:absolute; top:16px; right:16px; z-index:1000; background: rgba(15,23,42,0.95); padding:16px 20px; border-radius:16px; color:#e2e8f0; min-width:200px; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+        .stats-title { font-size:14px; font-weight:700; color:#60a5fa; margin-bottom:12px; }
+        .stat-item { display:flex; justify-content:space-between; margin:8px 0; font-size:12px; }
+
+        #loading { position:fixed; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; z-index:10000; color:#007bff; font-size:18px; font-weight:600; background:#f8f9fa; }
+    </style>
+</head>
+<body>
+    <div id="loading">⏳ Загрузка карты...</div>
+    <div id="map"></div>
+
+    <div class="toolbar" id="toolbar" style="display:none;">
+        <div class="toolbar-header">
+            <div class="toolbar-title">🎯 Панель управления</div>
+            <button class="secondary" id="toggleToolbar" style="padding:6px 12px; font-size:11px;">Свернуть</button>
+        </div>
+
+        <div id="toolbarContent">
+            <div class="toolbar-section">
+                <div class="toolbar-section-title">Добавить цели</div>
+                <div id="spawnModeIndicator" style="font-size:12px; color:#f97316; margin-bottom:8px; display:none;">
+                    Кликните по карте, чтобы добавить: <span id="currentSpawnType"></span>
+                    <button class="danger" id="cancelSpawn" style="padding:4px 8px; margin-left:8px; font-size:10px;">Отмена</button>
+                </div>
+                <div class="button-group">
+                    <button data-type="shakhed" id="spawnShakhedBtn">🛩️ Шахед</button>
+                    <button data-type="razved" id="spawnRazvedBtn">👁️ Разведчик</button>
+                    <button data-type="raketa" id="spawnRaketaBtn">🚀 Ракета</button>
+                </div>
+                <div class="button-group" style="margin-top:6px;">
+                    <button data-type="neizv" id="spawnNeizvBtn">❓ Неизв.</button>
+                    <button data-type="istreb" id="spawnIstrebitelBtn">✈️ Истребитель</button>
+                    <button data-type="explosion" id="spawnExplosionBtn" class="danger">💥 Добавить Взрыв</button>
+                </div>
+                <div style="margin-top:10px; display:flex; gap:6px; align-items:center;">
+                    <input id="spawnCount" type="number" value="5" min="1" style="width:60px">
+                    <button class="success" id="spawnMany">Создать много в центре</button>
+                </div>
+            </div>
+
+            <div class="toolbar-section">
+                <div class="toolbar-section-title">Параметры движения</div>
+                <label>
+                    <span>Скорость (км/ч):</span>
+                    <input id="speed" type="number" value="200" min="50" max="1000">
+                </label>
+            </div>
+
+            <div id="bulkControls" style="display:none; margin-top:12px;">
+                <div class="toolbar-section">
+                    <div class="toolbar-section-title">Массовое управление (<span id="bulkSelectedCount">0</span> целей)</div>
+                    <label style="display:block; margin-bottom:8px;">
+                        <span>Угол (град):</span>
+                        <input id="rotateInput" type="range" min="-180" max="180" value="0" style="width:100%; margin-top:4px;">
+                        <div style="text-align:center; margin-top:8px; font-weight:600; color:#60a5fa;">
+                            <span id="rotateVal">0°</span>
+                        </div>
+                    </label>
+                    <label style="margin-top:10px;">
+                        <span>Новая скорость (км/ч):</span>
+                        <input id="newSpeed" type="number" value="200" min="50" max="1000" style="width:70px;">
+                    </label>
+                    <button class="success" id="applyNewSpeed" style="width:100%; margin-top:8px;">Применить скорость</button>
+                </div>
+            </div>
+
+            <div class="toolbar-section">
+                <div class="toolbar-section-title">Управление</div>
+                <div class="button-group">
+                    <button class="secondary" id="toggleSelection">🎯 Выделение</button>
+                    <button class="secondary" id="centerAll">📍 Центр</button>
+                </div>
+                
+                <div class="button-group" style="margin-top:6px;">
+                    <button id="drawLineBtn" class="secondary">📏 Линия (Полигон)</button>
+                    <button id="finishDrawBtn" class="success" style="display:none;">✅ Завершить (ENTER)</button>
+                </div>
+                <div class="button-group" style="margin-top:6px;">
+                    <button class="danger" id="deleteAsShotDown">🗑️ Сбиття</button>
+                    <button class="danger" id="deleteAsExplosion">💥 Вибух</button>
+                </div>
+                <button class="secondary" id="toggleWatermark" style="margin-top:6px; width:100%">Водяной знак</button>
+                <button class="success" id="screenshotBtn" style="margin-top:8px; width:100%">📸 Скрин карты</button>
+            </div>
+
+            <div style="font-size:11px; color:#64748b; margin-top:8px; font-style:italic;">
+                💡 Двойной клик по карте — время подлёта до ближайшей цели.<br>
+                💡 ESC — Отмена рисования.
+            </div>
+        </div>
+    </div>
+
+    <div class="stats-panel" id="statsPanel" style="display:none;">
+        <div class="stats-title">📊 Статистика</div>
+        <div class="stat-item"><span class="stat-label">Всего целей:</span><span class="stat-value" id="statTotal">0</span></div>
+        <div class="stat-item"><span class="stat-label">Выбрано:</span><span class="stat-value" id="statSelected">0</span></div>
+        <div class="stat-item"><span class="stat-label">Шахед:</span><span class="stat-value" id="statShakhed">0</span></div>
+        <div class="stat-item"><span class="stat-label">Разведчик:</span><span class="stat-value" id="statRazved">0</span></div>
+        <div class="stat-item"><span class="stat-label">Ракета:</span><span class="stat-value" id="statRaketa">0</span></div>
+    </div>
+
+    <div class="watermark-grid" id="watermarkGrid"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    
+    <script src="https://unpkg.com/leaflet-geosearch@3.10.2/dist/geosearch.umd.js"></script>
+
+    <script>
+        // Глобальные переменные
+        let map, shakheds, selected, nextId, selectionEnabled, watermarkVisible;
+        let dragging = false;
+        let dragStart = null;
+        let initialPositions = new Map();
+        let marqueeEl = null;
+        let startPoint = null;
+        let toolbarMinimized = false;
+        let spawnMode = { active: false, type: null, icon: null }; 
+        
+        // НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ РИСОВАНИЯ
+        let drawMode = false;
+        let linePoints = [];
+        let tempMarkers = [];
+        let currentLine = null;
+        // КОНЕЦ НОВЫХ ПЕРЕМЕННЫХ
+
+        // Константы
+        const METER_PER_DEG_LAT = 111320; 
+        const HISTORY_SIZE = 15; 
+        const EXPLOSION_SIZE = 50; // ИЗМЕНЕНО: Уменьшенный размер взрыва (70 -> 50)
+
+        // Карта типов для удобного спавна
+        const unitTypes = {
+            'shakhed': { icon: 'shakhed.png', name: '🛩️ Шахед' },
+            'razved': { icon: 'razved.png', name: '👁️ Разведчик' },
+            'raketa': { icon: 'raketa.png', name: '🚀 Ракета' },
+            'neizv': { icon: 'neizv.png', name: '❓ Неизв.' },
+            'istreb': { icon: 'istreb.png', name: '✈️ Истребитель' },
+            'explosion': { icon: 'explosion.png', name: '💥 Взрыв' } 
+        };
+
+        // Ждем Leaflet
+        function checkLeaflet() {
+            // Ждем Leaflet и GeoSearch
+            if (typeof L !== 'undefined' && typeof GeoSearch !== 'undefined') initMap();
+            else setTimeout(checkLeaflet, 100);
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', checkLeaflet);
+        else checkLeaflet();
+        
+        // НОВЫЕ ФУНКЦИИ ДЛЯ РИСОВАНИЯ
+        function activateDrawMode() {
+            if (spawnMode.active) deactivateSpawnMode();
+            selectionEnabled = false; // Отключаем выделение marquee
+            
+            map.getContainer().style.cursor = 'crosshair';
+            drawMode = true;
+            linePoints = [];
+            
+            tempMarkers.forEach(m => map.removeLayer(m));
+            tempMarkers = [];
+            
+            if (currentLine) map.removeLayer(currentLine);
+            // Создаем временную линию
+            currentLine = L.polyline([], { color: '#f97316', weight: 3, dashArray: '8, 8' }).addTo(map);
+            
+            document.getElementById('drawLineBtn').classList.add('active-spawn');
+            document.getElementById('finishDrawBtn').style.display = 'none';
+        }
+
+        function deactivateDrawMode() {
+            map.getContainer().style.cursor = '';
+            drawMode = false;
+            
+            // Удаляем временные элементы
+            tempMarkers.forEach(m => map.removeLayer(m));
+            tempMarkers = [];
+            if (currentLine) map.removeLayer(currentLine);
+            currentLine = null;
+            
+            document.getElementById('drawLineBtn').classList.remove('active-spawn');
+            document.getElementById('finishDrawBtn').style.display = 'none';
+            
+            selectionEnabled = true; // Включаем обратно
+        }
+        
+        function addDrawPoint(latlng) {
+            linePoints.push(latlng);
+
+            // Добавляем временный маркер
+            const marker = L.marker(latlng, { 
+                icon: L.divIcon({ 
+                    className: 'draw-point-marker', 
+                    html: '<div style="background:#f97316; width:10px; height:10px; border-radius:50%; border:2px solid white;"></div>',
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                }),
+                draggable: false, 
+                interactive: false 
+            }).addTo(map);
+            tempMarkers.push(marker);
+
+            // Обновляем временную линию
+            currentLine.setLatLngs(linePoints);
+
+            if (linePoints.length >= 2) {
+                document.getElementById('finishDrawBtn').style.display = 'inline-block';
+            }
+        }
+        
+        function finalizePolygon() {
+            if (!drawMode || linePoints.length < 3) {
+                deactivateDrawMode();
+                return;
+            }
+
+            // Создаем финальный Polygon
+            L.polygon(linePoints, {
+                color: '#f97316',
+                fillColor: '#f97316',
+                fillOpacity: 0.3,
+                weight: 3,
+                interactive: true
+            }).addTo(map);
+            
+            // Завершаем режим рисования
+            deactivateDrawMode();
+        }
+        // КОНЕЦ НОВЫХ ФУНКЦИЙ
+
+        function initMap() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('toolbar').style.display = 'block';
+            document.getElementById('statsPanel').style.display = 'block';
+
+            shakheds = new Map();
+            selected = new Set();
+            nextId = 1;
+            selectionEnabled = true;
+            watermarkVisible = true;
+            
+            // Сброс состояния рисования
+            drawMode = false;
+            linePoints = [];
+            tempMarkers = [];
+            currentLine = null;
+
+
+            map = L.map('map', { zoomControl:true, dragging:true, scrollWheelZoom:true, doubleClickZoom:true, boxZoom:true }).setView([49.0,31.0],6);
+
+            const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; OpenStreetMap contributors', crossOrigin:'anonymous' }).addTo(map);
+            
+            // --- ДОБАВЛЕНО: Интеграция GeoSearch ---
+            const { OpenStreetMapProvider } = GeoSearch;
+            const searchProvider = new OpenStreetMapProvider();
+            
+            const searchControl = new GeoSearch.GeoSearchControl({
+                provider: searchProvider,
+                style: 'bar',
+                showMarker: true,
+                showPopup: false,
+                autoClose: true,
+                retainZoomLevel: false,
+                animateZoom: true,
+                keepResult: true,
+                autoSearch: false,
+                searchLabel: 'Введите адрес или место',
+            });
+            
+            map.addControl(searchControl);
+            // --- КОНЕЦ ДОБАВЛЕНИЯ GeoSearch ---
+
+            // --- ДОБАВЛЕНО: Пусковые локации с иконкой s_vpp3.png ---
+            const launchLocations = [
+                { name: "Шаталово", lat: 54.3307, lng: 32.5032 },
+                { name: "Орёл", lat: 52.9680, lng: 36.0697 },
+                { name: "Навля", lat: 52.8264, lng: 34.4985 },
+                { name: "Асовица", lat: 52.3288, lng: 34.5259 },
+                { name: "Халино (аэропорт Курск)", lat: 51.7504, lng: 36.2951 },
+                { name: "Міллерово (аэродром)", lat: 48.9226, lng: 40.2927 },
+                { name: "Шахты", lat: 47.7086, lng: 40.2156 },
+                { name: "Приморсько-Ахтарськ (аэродром)", lat: 46.0467, lng: 38.2140 },
+                { name: "Ейськ (аэродром)", lat: 46.6831, lng: 38.2169 },
+                { name: "Чауда (аэродром)", lat: 45.0558, lng: 35.3185 },
+                { name: "Гвардійське (аэродром)", lat: 45.0612, lng: 33.9753 },
+                { name: "Кача (аэродром)", lat: 44.7804, lng: 33.5450 },
+                { name: "Балаклава", lat: 44.5004, lng: 33.5995 },
+                { name: "Донецьк (аэропорт)", lat: 48.0736, lng: 37.7394 },
+                { name: "Макіївка", lat: 48.0479, lng: 37.9253 },
+                { name: "Бердянськ (аэродром)", lat: 46.8141, lng: 36.7582 }
+            ];
+
+            // Определяем иконку для пусковых
+            const launchIcon = L.icon({
+                iconUrl: 's_vpp3.png', // Имя файла, как вы и просили
+                iconSize: [24, 24],    // ПРЕДПОЛАГАЕМЫЙ РАЗМЕР (можно изменить)
+                iconAnchor: [12, 12],  // Центр иконки
+                popupAnchor: [0, -12]  // Смещение popup
+            });
+
+            // Добавляем L.marker
+            launchLocations.forEach(loc => {
+                L.marker([loc.lat, loc.lng], { icon: launchIcon })
+                    .addTo(map)
+                    .bindPopup(`<b>${loc.name}</b><br>${loc.lat}, ${loc.lng}`);
+            });
+            // --- КОНЕЦ ДОБАВЛЕНИЯ ---
+            
+            const grid = document.getElementById('watermarkGrid');
+
+            // --- Водяные знаки (П'ятихаток) ---
+            function createWatermarks() {
+                grid.innerHTML = '';
+                const cols = Math.ceil(window.innerWidth / 220);
+                const rows = Math.ceil(window.innerHeight / 140);
+                const total = Math.max(1, cols * rows);
+                for (let i = 0; i < total; i++) {
+                    const item = document.createElement('div');
+                    item.className = 'watermark-item';
+                    const line1 = document.createElement('span');
+                    line1.className = 'line1';
+                    line1.textContent = 'Бульдожкин';
+                    const line2 = document.createElement('span');
+                    line2.className = 'line2';
+                    line2.textContent = '@Buldoshkin_monitor'; // Подтвержденный хендл
+                    item.appendChild(line1);
+                    item.appendChild(line2);
+                    grid.appendChild(item);
+                }
+            }
+
+            createWatermarks();
+            window.addEventListener('resize', () => { if (watermarkVisible) createWatermarks(); });
+
+            document.getElementById('toggleWatermark').addEventListener('click', ()=> {
+                watermarkVisible = !watermarkVisible;
+                grid.style.display = watermarkVisible ? 'grid' : 'none';
+            });
+            
+            // --- Helper для проксирования изображений ---
+            function proxyImgUrl(url){
+                try {
+                    // Проверяем, является ли URL локальным файлом (например, explosion.png)
+                    if (!/^https?:\/\//i.test(url)) return url; 
+
+                    const u = new URL(url, location.href);
+                    const hostPath = u.host + u.pathname + (u.search || '');
+                    return 'https://images.weserv.nl/?url=' + encodeURIComponent(hostPath);
+                } catch(e){ return url; }
+            }
+            function loadImage(url){
+                return new Promise((resolve,reject)=>{
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = ()=>resolve(img);
+                    img.onerror = ()=>reject(new Error('img load error '+url));
+                    img.src = url;
+                });
+            }
+
+            // СКРИН: кнопка и логика
+            document.getElementById('screenshotBtn').addEventListener('click', async ()=>{
+                const toolbar = document.getElementById('toolbar');
+                const stats = document.getElementById('statsPanel');
+                const mapEl = map.getContainer();
+
+                const hideEls = [toolbar, stats];
+                hideEls.forEach(el=>{ if (el) el.style.visibility = 'hidden'; });
+
+                await new Promise(r=>setTimeout(r, 120));
+
+                try {
+                    const rect = mapEl.getBoundingClientRect();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(rect.width);
+                    canvas.height = Math.round(rect.height);
+                    const ctx = canvas.getContext('2d');
+                    
+                    const tileSize = 256;
+                    const z = map.getZoom();
+                    const pixelBounds = map.getPixelBounds();
+                    const minTileX = Math.floor(pixelBounds.min.x / tileSize);
+                    const maxTileX = Math.floor((pixelBounds.max.x) / tileSize);
+                    const minTileY = Math.floor(pixelBounds.min.y / tileSize);
+                    const maxTileY = Math.floor((pixelBounds.max.y) / tileSize);
+
+                    // 1. Отрисовка тайлов карты
+                    const tilePromises = [];
+                    for (let tx = minTileX; tx <= maxTileX; tx++){
+                        for (let ty = minTileY; ty <= maxTileY; ty++){
+                            const s = ['a','b','c'][Math.abs(tx+ty)%3];
+                            const tileUrl = `https://${s}.tile.openstreetmap.org/${z}/${tx}/${ty}.png`;
+                            const prox = proxyImgUrl(tileUrl);
+                            const px = Math.round(tx*tileSize - pixelBounds.min.x);
+                            const py = Math.round(ty*tileSize - pixelBounds.min.y);
+                            const p = loadImage(prox).then(img=>({img, x:px, y:py})).catch(err=>({err, x:px, y:py}));
+                            tilePromises.push(p);
+                        }
+                    }
+
+                    const tiles = await Promise.all(tilePromises);
+                    for (const t of tiles){
+                        if (t && t.img) ctx.drawImage(t.img, t.x, t.y, tileSize, tileSize);
+                        else { ctx.fillStyle = '#ececec'; ctx.fillRect(t.x, t.y, tileSize, tileSize); }
+                    }
+
+                    // 2. Отрисовка ватермарок
+                    ctx.globalAlpha = 0.15;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const stepX = 220, stepY = 140, pad = 40;
+                    for (let x = pad; x < canvas.width; x += stepX){
+                        for (let y = pad; y < canvas.height; y += stepY){
+                            ctx.fillStyle = 'rgba(0,0,0,0.9)';
+                            ctx.font = '700 22px Montserrat, Arial';
+                            ctx.fillText('Радар Бульдожина', x, y - 6);
+                            ctx.font = '400 15px Montserrat, Arial';
+                            ctx.fillText('@Buldoshkin_monitot', x, y + 16);
+                        }
+                    }
+                    ctx.globalAlpha = 1.0;
+
+                    // 3. Отрисовка Траекторий (хвостов)
+                    ctx.strokeStyle = '#3b82f6';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+
+                    for (const [id, s] of shakheds) {
+                        if (s.type === 'explosion') continue; // Взрывы без хвостов
+                        if (s.history && s.history.length > 1) {
+                            const screenPoints = s.history.map(latlng => map.latLngToContainerPoint(latlng));
+                            
+                            ctx.beginPath();
+                            screenPoints.forEach((pt, index) => {
+                                if (index === 0) {
+                                    ctx.moveTo(pt.x, pt.y);
+                                } else {
+                                    ctx.lineTo(pt.x, pt.y);
+                                }
+                            });
+                            ctx.stroke();
+                        }
+                    }
+                    ctx.setLineDash([]); 
+
+                    // 4. Отрисовка Маркеров (Целей)
+                    const markerPromises = [];
+                    for (const [id,s] of shakheds){
+                        try{
+                            const pt = map.latLngToContainerPoint(s.latlng);
+                            
+                            // Получаем URL иконки
+                            let iconUrl = '';
+                            if (s.type === 'explosion') {
+                                iconUrl = unitTypes.explosion.icon;
+                            } else {
+                                const imgEl = s.el.querySelector('img');
+                                if (imgEl) iconUrl = imgEl.src;
+                            }
+                            
+                            if (s.type === 'explosion') {
+                                markerPromises.push(Promise.resolve({ isExplosion: true, pt, size: EXPLOSION_SIZE, url: iconUrl }));
+                                continue;
+                            }
+                            
+                            if (iconUrl) {
+                                const prox = proxyImgUrl(iconUrl);
+                                const pr = loadImage(prox).then(img=>({img, pt, angle: s.angle})).catch(err=>({err, pt}));
+                                markerPromises.push(pr);
+                            }
+                            
+                        }catch(e){/* skip */}
+                    }
+                    
+                    const markers = await Promise.all(markerPromises);
+                    for (const m of markers){
+                        if (m.isExplosion) {
+                            const w = m.size, h = m.size;
+                            const x = m.pt.x, y = m.pt.y;
+
+                            // Загружаем PNG для взрыва
+                            const img = await loadImage(m.url).catch(()=>null); 
+                            
+                            if (img) {
+                                ctx.save();
+                                // PNG взрыва
+                                ctx.drawImage(img, x - w/2, y - h/2, w, h);
+                                ctx.restore();
+                            } else {
+                                // Резервный вариант (старый градиент)
+                                ctx.save();
+                                const gradient = ctx.createRadialGradient(x, y, 0, x, y, w/2);
+                                gradient.addColorStop(0, 'rgba(252,165,165,1)');
+                                gradient.addColorStop(0.7, 'rgba(239,68,68,0)');
+                                ctx.fillStyle = gradient;
+                                ctx.globalAlpha = 0.9;
+                                ctx.beginPath();
+                                ctx.arc(x, y, w/2, 0, 2 * Math.PI);
+                                ctx.fill();
+                                ctx.restore();
+                            }
+                        } else if (m && m.img){
+                            // Отрисовка Цели
+                            const w = m.img.width, h = m.img.height;
+                            const ptX = m.pt.x, ptY = m.pt.y;
+                            
+                            ctx.save();
+                            ctx.translate(ptX, ptY);
+                            ctx.rotate(m.angle * Math.PI/180);
+                            ctx.drawImage(m.img, -w/2, -h/2, w, h);
+                            ctx.restore();
+                        }
+                    }
+
+                    // 5. Отрисовка Полигонов (если нужно)
+                    // TODO: Если в будущем будут добавлены постоянные полигоны, их нужно отрисовать здесь.
+                    
+                    // 6. Копирование в буфер
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                    if (!blob) throw new Error('Не удалось создать blob из canvas.');
+
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.write) {
+                            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                            alert('Скрин с картой и целями скопирован в буфер обмена');
+                        } else {
+                            const url = URL.createObjectURL(blob);
+                            window.open(url, '_blank');
+                            alert('Буфер недоступен — открыт результат в новой вкладке (сохраните вручную)');
+                        }
+                    } catch (err) {
+                        const url = URL.createObjectURL(blob);
+                        window.open(url, '_blank');
+                        alert('Не удалось скопировать в буфер: ' + (err && err.message ? err.message : err) + 'Открыт результат в новой вкладке.');
+                    }
+
+                } catch (e) {
+                    alert('Ошибка при создании скрина: ' + (e && e.message ? e.message : e));
+                }
+
+                hideEls.forEach(el=>{ if (el) el.style.visibility = ''; });
+            });
+
+
+            // --- Геодезическое расстояние ---
+            function getDistance(latlng1, latlng2) {
+                const R = 6371; // км
+                const dLat = (latlng2.lat - latlng1.lat) * (Math.PI / 180);
+                const dLon = (latlng2.lng - latlng1.lng) * (Math.PI / 180);
+                const a =
+                    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(latlng1.lat * (Math.PI / 180)) * Math.cos(latlng2.lat * (Math.PI / 180)) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c; // км
+            }
+
+            // --- Индикация TOA (Popup) ---
+            map.on('dblclick', function(e) {
+                if (spawnMode.active || drawMode) return;
+                
+                let closest = null;
+                let minTime = Infinity;
+                let minDistance = Infinity;
+
+                for (const [id, s] of shakheds) {
+                    if (s.type === 'explosion') continue;
+                    
+                    const speedKmh = s.speed * 3.6;
+                    const distanceKm = getDistance(e.latlng, s.latlng);
+                    const timeHours = distanceKm / speedKmh;
+
+                    if (timeHours < minTime) {
+                        minTime = timeHours;
+                        minDistance = distanceKm;
+                        closest = s;
+                    }
+                }
+
+                if (closest) {
+                    const timeMinutes = (minTime * 60).toFixed(1);
+                    const distanceKm = minDistance.toFixed(1);
+
+                    const content = `
+                        <div class="arrival-popup">
+                            <b>⏱️ Время подлёта до цели</b>
+                            <div class="metric">
+                                <span class="metric-label">Ближайшая цель:</span>
+                                <span class="metric-value">#${closest.id} (${closest.type})</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-label">Время:</span>
+                                <span class="metric-value">${timeMinutes} мин</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-label">Расстояние:</span>
+                                <span class="metric-value">${distanceKm} км</span>
+                            </div>
+                        </div>
+                    `;
+                    L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+                } else if (shakheds.size > 0) {
+                    L.popup().setLatLng(e.latlng).setContent('Нет движущихся целей.').openOn(map);
+                } else {
+                    L.popup().setLatLng(e.latlng).setContent('Нет активных целей.').openOn(map);
+                }
+            });
+
+
+            // --- Активация режима спавна ---
+            function activateSpawnMode(type) {
+                if (drawMode) deactivateDrawMode(); // Отключаем рисование
+                
+                spawnMode.active = true;
+                spawnMode.type = type;
+                spawnMode.icon = unitTypes[type].icon;
+                
+                // Обновляем UI
+                document.getElementById('spawnModeIndicator').style.display = 'block';
+                document.getElementById('currentSpawnType').textContent = unitTypes[type].name;
+                
+                document.querySelectorAll('.toolbar button[data-type]').forEach(btn => btn.classList.remove('active-spawn'));
+                document.querySelector(`.toolbar button[data-type="${type}"]`).classList.add('active-spawn');
+                
+                map.getContainer().style.cursor = 'crosshair';
+            }
+            
+            // --- Отключение режима спавна ---
+            function deactivateSpawnMode() {
+                spawnMode.active = false;
+                spawnMode.type = null;
+                spawnMode.icon = null;
+                
+                document.getElementById('spawnModeIndicator').style.display = 'none';
+                document.querySelectorAll('.toolbar button[data-type]').forEach(btn => btn.classList.remove('active-spawn'));
+                map.getContainer().style.cursor = drawMode ? 'crosshair' : '';
+            }
+            
+            // --- Обработчик клика по карте в режиме спавна / рисования ---
+            map.on('click', function(e) {
+                if (spawnMode.active) {
+                    if (spawnMode.type === 'explosion') {
+                        spawnExplosion(e.latlng);
+                        deactivateSpawnMode(); 
+                    } else {
+                        spawnUnit(e.latlng, spawnMode.icon, 0, defaultSpeed());
+                        deactivateSpawnMode(); 
+                    }
+                } else if (drawMode) { // <--- НОВЫЙ ХЕНДЛЕР ДЛЯ РИСОВАНИЯ
+                    addDrawPoint(e.latlng);
+                }
+            });
+            
+            document.getElementById('cancelSpawn').addEventListener('click', deactivateSpawnMode);
+            
+            // --- ХЕНДЛЕРЫ КНОПОК РИСОВАНИЯ ---
+            document.getElementById('drawLineBtn').addEventListener('click', ()=>{
+                if (drawMode) deactivateDrawMode(); else activateDrawMode();
+            });
+            document.getElementById('finishDrawBtn').addEventListener('click', finalizePolygon);
+            
+            // --- ХЕНДЛЕР КЛАВИШИ ENTER/ESCAPE ---
+            document.addEventListener('keydown', function(e) {
+                if (drawMode) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault(); 
+                        finalizePolygon();
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault(); 
+                        deactivateDrawMode();
+                    }
+                }
+            });
+
+
+            // статистика
+            function updateStats() {
+                const types = { 'shakhed':0, 'razved':0, 'raketa':0, 'neizv':0, 'istreb':0 };
+                let totalMoving = 0;
+                for (const [id, s] of shakheds) { 
+                    if (types[s.type] !== undefined) {
+                        types[s.type]++; 
+                        totalMoving++;
+                    }
+                }
+                // Статистика "Всего целей" теперь считает только движущиеся, как в вашем скрипте
+                document.getElementById('statTotal').textContent = totalMoving; 
+                document.getElementById('statSelected').textContent = selected.size;
+                document.getElementById('statShakhed').textContent = types['shakhed'] || 0;
+                document.getElementById('statRazved').textContent = types['razved'] || 0;
+                document.getElementById('statRaketa').textContent = types['raketa'] || 0;
+                
+                syncBulkControls(); 
+            }
+
+            // скорость: input в км/ч -> м/с
+            const defaultSpeed = () => (Number(document.getElementById('speed').value) || 200) / 3.6;
+
+
+            /* ---------- АНАЛИТИЧЕСКОЕ обновление позиций ---------- */
+            function applyElapsed(elapsedSeconds) {
+                if (!elapsedSeconds || elapsedSeconds <= 0) return;
+                for (const [id, s] of shakheds) {
+                    if (s.type === 'explosion') continue; 
+                    
+                    const dx = s.vx * elapsedSeconds; 
+                    const dy = s.vy * elapsedSeconds; 
+
+                    const METER_PER_DEG_LNG = (40075000 * Math.cos(s.latlng.lat * Math.PI / 180) / 360);
+
+                    const deltaLat = dy / METER_PER_DEG_LAT;
+                    const deltaLng = dx / METER_PER_DEG_LNG;
+
+                    s.latlng = L.latLng(s.latlng.lat + deltaLat, s.latlng.lng + deltaLng);
+                    s.marker.setLatLng(s.latlng);
+                    
+                    s.history.push(s.latlng.clone());
+                    if (s.history.length > HISTORY_SIZE) s.history.shift(); 
+                    
+                    s.polyline.setLatLngs(s.history);
+                }
+            }
+
+            let lastTime = performance.now();
+            function rafLoop(time) {
+                const elapsed = (time - lastTime) / 1000;
+                lastTime = time;
+
+                applyElapsed(elapsed);
+
+                requestAnimationFrame(rafLoop);
+            }
+            requestAnimationFrame(rafLoop);
+
+            /* ---------- Маркеры, спавн, UI ---------- */
+            
+            // =======================================================
+            // ИСПРАВЛЕНО: Эта функция была изменена, 
+            // чтобы маркеры не "прыгали" при зуме
+            // =======================================================
+            function makeMarkerElement(id, imgSrc, type) {
+                const isExplosion = type === 'explosion';
+                
+                // 1. Определяем БАЗОВЫЙ размер (CSS размер)
+                const baseIconSize = isExplosion ? [EXPLOSION_SIZE, EXPLOSION_SIZE] : [50, 35];
+                
+                // 2. Определяем, насколько элемент выпирает из-за ручки
+                //    (7px из-за 'right: -7px' на ручке 14px)
+                const handleSpillover = isExplosion ? 0 : 7;
+
+                // 3. Размер, который мы передадим в L.divIcon
+                //    (базовая ширина + "выпирание")
+                const leafletIconSize = [baseIconSize[0] + handleSpillover, baseIconSize[1]];
+
+                // 4. Якорь (anchor) - это ВСЕГДА центр *базового* размера,
+                //    чтобы иконка была по центру. Округляем, чтобы избежать 1px "дрифта".
+                const leafletIconAnchor = [
+                    Math.round(baseIconSize[0] / 2), 
+                    Math.round(baseIconSize[1] / 2)
+                ]; // [25, 18] для юнита, [25, 25] для взрыва
+
+                // Создаем wrap
+                const wrap = L.DomUtil.create('div','marker-wrap'); 
+                wrap.dataset.id = id;
+                wrap.dataset.type = type; 
+                
+                // 5. Устанавливаем CSS-размер (он не меняется, 50x35 или 50x50)
+                wrap.style.width = `${baseIconSize[0]}px`;
+                wrap.style.height = `${baseIconSize[1]}px`;
+
+                if (isExplosion) {
+                    // Используем CSS класс для PNG
+                    L.DomUtil.create('div', 'explosion-icon', wrap);
+                } else {
+                    const imgClass = type === 'razved' ? 'razved-icon'
+                                    : type === 'raketa' ? 'raketa-icon'
+                                    : type === 'neizv' ? 'neizv-icon'
+                                    : type === 'istreb' ? 'istreb-icon'
+                                    : 'shakhed-icon';
+                    L.DomUtil.create('img', imgClass, wrap).src = imgSrc;
+                }
+                
+                const border = L.DomUtil.create('div','marker-border',wrap);
+                const handle = L.DomUtil.create('div','rotate-handle',wrap);
+
+                L.DomEvent.on(border,'click', ev=>{
+                    L.DomEvent.stopPropagation(ev);
+                    if (!selectionEnabled) return; 
+                    const id = Number(wrap.dataset.id);
+                    if (ev.shiftKey) toggleSelect(id); else { clearSelection(); selectId(id); }
+                });
+
+                if (!isExplosion) {
+                    handle.addEventListener('mousedown', ev=> startDrag(ev, id, true)); 
+                    border.addEventListener('mousedown', ev=> { if (ev.button === 0) startDrag(ev, id, false); });
+                }
+                
+                border.addEventListener('contextmenu', ev=>{ ev.preventDefault(); ev.stopPropagation(); });
+
+                // 6. Возвращаем исправленные размеры для Leaflet
+                return { 
+                    el: wrap, 
+                    iconSize: leafletIconSize, // [57, 57]
+                    iconAnchor: leafletIconAnchor // [25, 18]
+                };
+            }
+
+            /* --- ФУНКЦИЯ ДОБАВЛЕНИЯ ВЗРЫВА --- */
+            function spawnExplosion(latlng) {
+                const id = nextId++;
+                const type = 'explosion';
+                // makeMarkerElement теперь возвращает правильные [50, 50] / [25, 25]
+                const { el, iconSize, iconAnchor } = makeMarkerElement(id, unitTypes.explosion.icon, type);
+                const icon = L.divIcon({ className:'', html:el, iconSize:iconSize, iconAnchor:iconAnchor });
+                const marker = L.marker(latlng, { icon, interactive:true, draggable:false }).addTo(map);
+
+                shakheds.set(id, { id, marker, el, latlng: L.latLng(latlng), type });
+                
+                // Взрыв исчезает через 5 секунд
+                setTimeout(()=>{
+                    const s = shakheds.get(id);
+                    if(s) { map.removeLayer(s.marker); shakheds.delete(id); updateStats(); }
+                }, 5000); 
+
+                updateStats(); 
+            }
+            
+            /* --- ФУНКЦИЯ УДАЛЕНИЯ ЦЕЛИ --- */
+            function deleteUnit(id) {
+                 const s = shakheds.get(id);
+                 if (s) { 
+                    map.removeLayer(s.marker); 
+                    if (s.polyline) map.removeLayer(s.polyline); 
+                    shakheds.delete(id); selected.delete(id); 
+                    updateStats();
+                 }
+            }
+
+
+            function spawnUnit(latlng, imgSrc, angleDeg, speed) {
+                const id = nextId++;
+                const type = Object.keys(unitTypes).find(k => unitTypes[k].icon === imgSrc);
+                // makeMarkerElement теперь возвращает [57, 35] / [25, 18]
+                const { el, iconSize, iconAnchor } = makeMarkerElement(id, imgSrc, type);
+                const icon = L.divIcon({ className:'', html:el, iconSize:iconSize, iconAnchor:iconAnchor });
+                const marker = L.marker(latlng, { icon, interactive:true, draggable:false }).addTo(map);
+                
+                const polyline = L.polyline([], { color: '#3b82f6', weight: 2, dashArray: '5, 5', opacity: 0.7 }).addTo(map);
+
+                const unit = { id, marker, el, latlng: L.latLng(latlng), angle: angleDeg, speed: speed || defaultSpeed(), vx:0, vy:0, type, polyline, history: [] }; 
+                shakheds.set(id, unit);
+                
+                setAngleForId(id, angleDeg, false); 
+                
+                updateMarkerTransform(id);
+                updateStats();
+                return id;
+            }
+            
+            // (Возвращена ваша оригинальная логика)
+            function setVelocityForId(id, angle, speed, updateInput=true){
+                const s = shakheds.get(id); if (!s) return;
+                s.angle = angle;
+                s.speed = speed;
+                
+                const rad = angle * Math.PI / 180;
+                s.vx = -Math.cos(rad) * s.speed;
+                s.vy = Math.sin(rad) * s.speed;
+                
+                updateMarkerTransform(id); 
+                if(updateInput) syncBulkControls();
+            }
+
+            // (Упрощено)
+            function setAngleForId(id, angle, updateInput=true) {
+                const s = shakheds.get(id); if (!s) return;
+                setVelocityForId(id, angle, s.speed, updateInput);
+            }
+            
+            function setSpeedForId(id, speed) {
+                const s = shakheds.get(id); if (!s) return;
+                setVelocityForId(id, s.angle, speed);
+            }
+
+            function updateMarkerTransform(id) {
+                const s = shakheds.get(id); if (!s) return;
+                s.el.style.transform = `rotate(${s.angle}deg)`;
+                if (selected.has(id)) s.el.classList.add('marker-selected'); else s.el.classList.remove('marker-selected');
+            }
+            
+            let isRotating = false;
+
+            function startDrag(ev, id, isRotationMode) {
+                if (ev.button !== 0 || drawMode) return; // Игнорируем, если в режиме рисования
+                L.DomEvent.stop(ev);
+                
+                isRotating = isRotationMode;
+
+                if (!selected.has(id)) clearSelection();
+                selectId(id);
+                
+                dragging = true;
+                dragStart = { x: ev.clientX, y: ev.clientY };
+                initialPositions.clear();
+                selected.forEach(selId => {
+                    const s = shakheds.get(selId);
+                    if (s && s.type !== 'explosion') { // Взрывы не двигаются
+                        initialPositions.set(selId, { 
+                            lat: s.latlng.lat, 
+                            lng: s.latlng.lng,
+                            initialAngle: s.angle,
+                        });
+                    }
+                });
+                document.body.style.cursor = isRotating ? 'crosshair' : 'grabbing';
+            }
+
+            function onDrag(ev) {
+                if (!dragging) return;
+                L.DomEvent.stop(ev);
+
+                if (isRotating) {
+                    const centerId = selected.values().next().value;
+                    const centerS = shakheds.get(centerId);
+                    if (!centerS) return;
+
+                    const centerPt = map.latLngToContainerPoint(centerS.latlng);
+                    const dx = ev.clientX - centerPt.x;
+                    const dy = ev.clientY - centerPt.y;
+                    
+                    const angleRad = Math.atan2(dy, dx);
+                    let angleDeg = angleRad * (180 / Math.PI) + 180;
+                    if (angleDeg > 180) angleDeg -= 360;
+                    
+                    for(const id of selected){
+                        setAngleForId(id, angleDeg, false);
+                    }
+                    syncBulkControls();
+
+
+                } else {
+                    const dx = ev.clientX - dragStart.x;
+                    const dy = ev.clientY - dragStart.y;
+                    initialPositions.forEach((pos, id) => {
+                        const s = shakheds.get(id); if (!s) return;
+                        const startPt = map.latLngToContainerPoint({lat: pos.lat, lng: pos.lng});
+                        const newPt = L.point(startPt.x + dx, startPt.y + dy);
+                        s.latlng = map.containerPointToLatLng(newPt);
+                        s.marker.setLatLng(s.latlng);
+                        
+                        // Сброс истории при перемещении, чтобы хвост не прыгал
+                        s.history = [s.latlng.clone()];
+                        s.polyline.setLatLngs(s.history);
+                    });
+                }
+            }
+
+            function endDrag() { 
+                dragging=false; 
+                dragStart=null; 
+                initialPositions.clear(); 
+                document.body.style.cursor=''; 
+                isRotating = false;
+            }
+
+            window.addEventListener('mousemove', onDrag);
+            window.addEventListener('mouseup', endDrag);
+
+            // Обработка touch-событий (для мобильных устройств, включая Safari)
+            // Leaflet хорошо обрабатывает touch для drag и zoom, но мы добавляем обработку для нашей логики.
+            map.getContainer().addEventListener('touchstart', (e) => {
+                if (drawMode) return;
+                
+                // Если коснулись маркера, начинаем drag (Leaflet'овский touch drag)
+                const targetMarkerWrap = e.target.closest('.marker-wrap');
+                if (targetMarkerWrap && selectionEnabled) {
+                    const id = Number(targetMarkerWrap.dataset.id);
+                    if (id && shakheds.get(id).type !== 'explosion') {
+                        // Имитируем начало drag (для движения)
+                        startDrag(e.touches[0], id, false);
+                        
+                        // Добавляем touchmove/touchend
+                        const onTouchMove = (evt) => onDrag(evt.touches[0]);
+                        const onTouchEnd = () => {
+                            endDrag();
+                            map.getContainer().removeEventListener('touchmove', onTouchMove);
+                            map.getContainer().removeEventListener('touchend', onTouchEnd);
+                        };
+                        
+                        map.getContainer().addEventListener('touchmove', onTouchMove, { passive: false });
+                        map.getContainer().addEventListener('touchend', onTouchEnd);
+                        
+                        L.DomEvent.stop(e);
+                    }
+                }
+            }, { passive: false });
+
+
+            function clearSelection(){ for (const id of Array.from(selected)) deselectId(id); }
+            // Выбирать можно все, кроме "взрыва"
+            function selectId(id){ const s = shakheds.get(id); if(s && s.type === 'explosion') return; selected.add(id); updateMarkerTransform(id); syncBulkControls(); updateStats(); }
+            function deselectId(id){ selected.delete(id); updateMarkerTransform(id); syncBulkControls(); updateStats(); }
+            function toggleSelect(id){ if (selected.has(id)) deselectId(id); else selectId(id); }
+
+            /* ---------- UI handlers ---------- */
+            document.getElementById('toggleSelection').addEventListener('click', ()=>{ selectionEnabled = !selectionEnabled; if(!selectionEnabled) clearSelection(); document.getElementById('toggleSelection').style.opacity = selectionEnabled ? '1' : '0.6'; });
+            document.getElementById('toggleToolbar').addEventListener('click', ()=>{
+                toolbarMinimized = !toolbarMinimized;
+                const content = document.getElementById('toolbarContent');
+                const btn = document.getElementById('toggleToolbar');
+                const toolbar = document.getElementById('toolbar');
+                if (toolbarMinimized) { content.style.display='none'; btn.textContent='Развернуть'; toolbar.classList.add('minimized'); }
+                else { content.style.display='block'; btn.textContent='Свернуть'; toolbar.classList.remove('minimized'); }
+            });
+
+            /* ---------- spawn buttons (Обновлено для режима клика) ---------- */
+            document.querySelectorAll('.toolbar button[data-type]').forEach(button => {
+                button.addEventListener('click', function() {
+                    const type = this.dataset.type;
+                    deactivateSpawnMode(); 
+                    activateSpawnMode(type);
+                });
+            });
+            
+
+            document.getElementById('spawnMany').addEventListener('click', ()=>{
+                deactivateSpawnMode(); 
+                const n = Math.max(1, Number(document.getElementById('spawnCount').value) || 5);
+                const center = map.getCenter();
+                const types = [unitTypes.shakhed.icon, unitTypes.razved.icon, unitTypes.raketa.icon, unitTypes.neizv.icon, unitTypes.istreb.icon];
+                for (let i=0;i<n;i++){
+                    const jitter = (Math.random()-0.5)*0.8;
+                    const angle = (Math.random()*360)-180;
+                    const randomType = types[Math.floor(Math.random()*types.length)];
+                    spawnUnit([center.lat + jitter/2, center.lng + jitter], randomType, angle, defaultSpeed());
+                }
+            });
+
+            /* --- ОБНОВЛЕННЫЕ ОБРАБОТЧИКИ ДЛЯ УДАЛЕНИЯ --- */
+            // 1. Сбиття (простое удаление)
+            document.getElementById('deleteAsShotDown').addEventListener('click', ()=>{
+                for (const id of Array.from(selected)) {
+                    deleteUnit(id); 
+                }
+                syncBulkControls(); updateStats();
+            });
+
+            // 2. Вибух (удаление + добавление взрыва)
+            document.getElementById('deleteAsExplosion').addEventListener('click', ()=>{
+                if (selected.size === 0) return;
+
+                // Получаем координаты первой цели для взрыва
+                const firstSelectedId = Array.from(selected).find(id => shakheds.get(id)?.type !== 'explosion');
+                const firstUnit = shakheds.get(firstSelectedId);
+                
+                if (firstUnit) {
+                    spawnExplosion(firstUnit.latlng);
+                }
+
+                // Удаляем все выделенные цели
+                for (const id of Array.from(selected)) {
+                    deleteUnit(id); 
+                }
+
+                syncBulkControls(); updateStats();
+            });
+
+
+            document.getElementById('centerAll').addEventListener('click', ()=>{
+                const arr = Array.from(shakheds.values()).map(s=>s.latlng).filter(l => l);
+                if (arr.length) map.fitBounds(L.latLngBounds(arr), { maxZoom:12, padding:[50,50] });
+            });
+
+            /* ---------- bulk controls UI ---------- */
+            const bulkControls = document.getElementById('bulkControls');
+            const rotateInput = document.getElementById('rotateInput');
+            const rotateVal = document.getElementById('rotateVal');
+            const newSpeedInput = document.getElementById('newSpeed');
+            const bulkSelectedCount = document.getElementById('bulkSelectedCount');
+
+            rotateInput.addEventListener('input', ()=>{
+                const val = Number(rotateInput.value); 
+                rotateVal.textContent = val + '°';
+                for (const id of selected) setAngleForId(id, val, false);
+            });
+            
+            document.getElementById('applyNewSpeed').addEventListener('click', ()=>{
+                const newSpeedKmh = Number(newSpeedInput.value);
+                const newSpeedMs = newSpeedKmh / 3.6;
+                for (const id of selected) setSpeedForId(id, newSpeedMs);
+            });
+
+            function syncBulkControls(){
+                // Только движущиеся цели (не взрывы) учитываются для массового управления
+                const movingSelected = Array.from(selected).filter(id => shakheds.get(id)?.type !== 'explosion');
+                
+                if (movingSelected.length === 0) { bulkControls.style.display='none'; return; }
+                
+                bulkControls.style.display='block';
+                bulkSelectedCount.textContent = selected.size; // Показываем общее число выбранных
+                
+                let sum=0,count=0;
+                for (const id of movingSelected){ 
+                    const s = shakheds.get(id); 
+                    sum+=s.angle; count++; 
+                }
+                const avg = count>0 ? Math.round(sum/count) : 0;
+                rotateInput.value = avg; rotateVal.textContent = avg + '°';
+                
+                const firstId = movingSelected[0];
+                const firstS = shakheds.get(firstId);
+                const firstSpeedKmh = firstS ? Math.round(firstS.speed * 3.6) : 200;
+                newSpeedInput.value = firstSpeedKmh;
+            }
+
+            /* ---------- marquee selection ---------- */
+            map.getContainer().addEventListener('mousedown', function(ev){
+                if (ev.button !== 0 || isRotating || !selectionEnabled || spawnMode.active || drawMode) return; // Игнорируем в режиме рисования
+                if (ev.target.closest('.toolbar') || ev.target.closest('.stats-panel') || ev.target.closest('.marker-wrap')) return;
+
+                startPoint = { x:ev.clientX, y:ev.clientY };
+                
+                if(!ev.shiftKey) clearSelection();
+
+                marqueeEl = document.createElement('div'); 
+                marqueeEl.className = 'marquee';
+                marqueeEl.style.left = `${startPoint.x}px`;
+                marqueeEl.style.top = `${startPoint.y}px`;
+                document.body.appendChild(marqueeEl);
+                
+                const onMarqueeMove = (e) => {
+                    if (!marqueeEl) return;
+                    const currentX = e.clientX, currentY = e.clientY;
+                    const x = Math.min(startPoint.x, currentX);
+                    const y = Math.min(startPoint.y, currentY);
+                    const w = Math.abs(startPoint.x - currentX);
+                    const h = Math.abs(startPoint.y - currentY);
+                    
+                    marqueeEl.style.left = `${x}px`;
+                    marqueeEl.style.top = `${y}px`;
+                    marqueeEl.style.width = `${w}px`;
+                    marqueeEl.style.height = `${h}px`;
+                    
+                    const marqueeRect = { x: x, y: y, xMax: x + w, yMax: y + h };
+
+                    shakheds.forEach(s => {
+                        // Взрывы теперь могут быть выделены для удаления, но не для управления углом/скоростью.
+                        // Marquee должен выделять все.
+                        
+                        const markerPt = map.latLngToContainerPoint(s.latlng);
+                        const isInside = markerPt.x >= marqueeRect.x && markerPt.x <= marqueeRect.xMax && 
+                                         markerPt.y >= marqueeRect.y && markerPt.y <= marqueeRect.yMax;
+                        
+                        if (isInside) { 
+                             // Используем прямое добавление в selected, чтобы взрывы тоже выделялись для удаления
+                             selected.add(s.id); 
+                             updateMarkerTransform(s.id);
+                             syncBulkControls(); 
+                             updateStats();
+                        } else if (!ev.shiftKey) { 
+                             // Если не зажат Shift, то снимаем выделение с тех, кто вышел
+                             selected.delete(s.id); 
+                             updateMarkerTransform(s.id); 
+                        }
+                    });
+                };
+                
+                const onMarqueeUp = () => {
+                    if (marqueeEl) {
+                        marqueeEl.remove(); 
+                        marqueeEl = null;
+                    }
+                    window.removeEventListener('mousemove', onMarqueeMove);
+                    window.removeEventListener('mouseup', onMarqueeUp);
+                    startPoint = null;
+                    syncBulkControls(); 
+                    updateStats();
+                };
+
+                window.addEventListener('mousemove', onMarqueeMove);
+                window.addEventListener('mouseup', onMarqueeUp);
+            });
+        }
+    </script>
+</body>
+</html>
